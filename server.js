@@ -6,47 +6,33 @@ const qrcode = require('qrcode');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
-app.get('/', (req, res) => {
-    res.send('<h2>🎯 Screen Share Server Active</h2><p>QR oluşturmak için Python scriptini çalıştırın.</p>');
-});
-
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ noServer: true });
 
 const sessions = new Map();
 
+app.get('/', (req, res) => {
+    res.send('<h2>🎯 Screen Share Server Active</h2>');
+});
+
 app.get('/generate', async (req, res) => {
     const sessionId = uuidv4();
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-    const host = req.get('host');
-    const targetUrl = `${protocol}://${host}/s/${sessionId}`;
-    
-    const qrImage = await qrcode.toDataURL(targetUrl, {
-        width: 400,
-        margin: 2,
-        color: { dark: '#000000', light: '#ffffff' }
-    });
+    const targetUrl = `https://${req.get('host')}/s/${sessionId}`;
     
     sessions.set(sessionId, {
         id: sessionId,
-        status: 'waiting',
-        createdAt: new Date(),
-        ws: null,
+        targetWs: null,
         viewerWs: null
     });
     
     res.json({
         success: true,
         sessionId,
-        qrCode: qrImage,
-        targetUrl,
-        status: 'waiting'
+        targetUrl
     });
 });
 
 app.get('/s/:sessionId', (req, res) => {
-    const session = sessions.get(req.params.sessionId);
-    if (!session) return res.status(404).send('Oturum bulunamadı');
     res.sendFile(path.join(__dirname, 'target.html'));
 });
 
@@ -54,29 +40,29 @@ app.get('/view/:sessionId', (req, res) => {
     res.sendFile(path.join(__dirname, 'viewer.html'));
 });
 
-wss.on('connection', (ws, req) => {
-    const url = new URL(req.url, `http://${req.headers.host}`);
+server.on('upgrade', (request, socket, head) => {
+    const url = new URL(request.url, `https://${request.headers.host}`);
     const pathname = url.pathname;
     const sessionId = url.searchParams.get('id');
     const session = sessions.get(sessionId);
 
-    if (pathname === '/ws/target' && session) {
-        session.ws = ws;
-        session.status = 'connected';
-        
-        ws.on('message', (data) => {
-            if (session.viewerWs && session.viewerWs.readyState === WebSocket.OPEN) {
-                session.viewerWs.send(data);
+    if (session) {
+        wss.handleUpgrade(request, socket, head, (ws) => {
+            if (pathname === '/ws/target') {
+                session.targetWs = ws;
+                ws.on('message', (data) => {
+                    if (session.viewerWs && session.viewerWs.readyState === WebSocket.OPEN) {
+                        session.viewerWs.send(data);
+                    }
+                });
+            } else if (pathname === '/ws/viewer') {
+                session.viewerWs = ws;
             }
         });
-        ws.on('close', () => { session.status = 'disconnected'; });
-    } else if (pathname === '/ws/viewer' && session) {
-        session.viewerWs = ws;
-        ws.on('close', () => { session.viewerWs = null; });
+    } else {
+        socket.destroy();
     }
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`🎯 Sunucu ${PORT} portunda aktif...`);
-});
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
