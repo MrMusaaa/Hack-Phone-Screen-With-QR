@@ -1,7 +1,7 @@
 {
   "name": "hack-phone-screen-with-qr",
   "version": "1.0.0",
-  "description": "",
+  "description": "QR Kod ile Ekran İzleme",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

@@ -23,14 +23,14 @@
         <h1>📱 Ekran İzleme</h1>
         <span class="status waiting" id="status">Bekleniyor...</span>
     </div>
-    
+
     <div class="viewer" id="viewer">
         <div style="text-align: center; color: #555;">
             <span style="font-size: 64px; display: block;">📵</span>
             <p>Hedef bağlantısı bekleniyor...</p>
         </div>
     </div>
-    
+
     <div class="info-bar">
         <span>📡 FPS: <span id="fps">0</span></span>
         <span>📐 Çözünürlük: <span id="resolution">-</span></span>
@@ -42,14 +42,14 @@
         const sessionId = window.location.pathname.split('/').pop();
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const WS_URL = `${protocol}//${window.location.host}/ws/viewer?id=${sessionId}`;
-        
+
         let ws = null;
         let frameCount = 0;
         let lastFrameTime = 0;
 
         function connect() {
             ws = new WebSocket(WS_URL);
-            
+
             ws.onopen = () => updateStatus('waiting', 'Bekleniyor...');
             ws.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
@@ -64,14 +64,14 @@
         function displayFrame(base64Data, resolution, timestamp) {
             const viewer = document.getElementById('viewer');
             viewer.innerHTML = `<img src="data:image/jpeg;base64,${base64Data}" />`;
-            
+
             frameCount++;
             document.getElementById('frames').textContent = frameCount;
             document.getElementById('resolution').textContent = resolution || '-';
             document.getElementById('latency').textContent = Date.now() - timestamp;
-            
+
             updateStatus('online', 'Canlı');
-            
+
             const now = Date.now();
             if (lastFrameTime) {
                 document.getElementById('fps').textContent = Math.round(1000 / (now - lastFrameTime));
