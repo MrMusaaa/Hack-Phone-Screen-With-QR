@@ -6,6 +6,10 @@ const qrcode = require('qrcode');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
+app.get('/', (req, res) => {
+    res.send('<h2>🎯 Screen Share Server Active</h2><p>QR oluşturmak için Python scriptini çalıştırın.</p>');
+});
+
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
