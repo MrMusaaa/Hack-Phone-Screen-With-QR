@@ -13,9 +13,9 @@
         .status.online { background: #00ff8820; color: #00ff88; }
         .status.offline { background: #ff444420; color: #ff4444; }
         .status.waiting { background: #ffaa0020; color: #ffaa00; }
-        .viewer { flex: 1; display: flex; justify-content: center; align-items: center; padding: 20px; background: #000; }
-        .viewer img { max-width: 100%; max-height: 100%; border-radius: 8px; border: 1px solid #2a2a3e; }
-        .info-bar { background: #1a1a2e; padding: 10px 20px; display: flex; gap: 20px; font-size: 13px; color: #888; border-top: 1px solid #2a2a3e; }
+        .viewer { flex: 1; display: flex; justify-content: center; align-items: center; padding: 20px; background: #000; overflow: hidden; }
+        .viewer img { max-width: 100%; max-height: 100%; border-radius: 8px; border: 1px solid #2a2a3e; object-fit: contain; }
+        .info-bar { background: #1a1a2e; padding: 10px 20px; display: flex; gap: 20px; font-size: 13px; color: #888; border-top: 1px solid #2a2a3e; flex-wrap: wrap; }
     </style>
 </head>
 <body>
@@ -28,6 +28,7 @@
         <div style="text-align: center; color: #555;">
             <span style="font-size: 64px; display: block;">📵</span>
             <p>Hedef bağlantısı bekleniyor...</p>
+            <p style="font-size: 12px; margin-top: 10px;">QR kod okutulduğunda otomatik bağlanacak</p>
         </div>
     </div>
 
@@ -36,47 +37,68 @@
         <span>📐 Çözünürlük: <span id="resolution">-</span></span>
         <span>⏱️ Gecikme: <span id="latency">-</span>ms</span>
         <span>📊 Toplam Kare: <span id="frames">0</span></span>
+        <span>🔑 Session: <span id="sessionId">-</span></span>
     </div>
 
     <script>
         const sessionId = window.location.pathname.split('/').pop();
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const WS_URL = `${protocol}//${window.location.host}/ws/viewer?id=${sessionId}`;
+        const host = window.location.host;
+        const WS_URL = `${protocol}//${host}/ws/viewer?id=${sessionId}`;
+
+        document.getElementById('sessionId').textContent = sessionId.substring(0, 8) + '...';
 
         let ws = null;
         let frameCount = 0;
         let lastFrameTime = 0;
+        let fpsCounter = 0;
+        let lastFpsTime = Date.now();
 
         function connect() {
             ws = new WebSocket(WS_URL);
 
-            ws.onopen = () => updateStatus('waiting', 'Bekleniyor...');
+            ws.onopen = () => {
+                console.log('İzleyici bağlandı');
+                updateStatus('waiting', 'Bekleniyor...');
+            };
+
             ws.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
                 if (msg.type === 'frame') displayFrame(msg.data, msg.resolution, msg.timestamp);
             };
+
             ws.onclose = () => {
+                console.log('Bağlantı kapandı, yeniden bağlanılıyor...');
                 updateStatus('offline', 'Bağlantı Kesildi');
                 setTimeout(connect, 3000);
+            };
+
+            ws.onerror = (err) => {
+                console.error('WebSocket hatası:', err);
             };
         }
 
         function displayFrame(base64Data, resolution, timestamp) {
             const viewer = document.getElementById('viewer');
-            viewer.innerHTML = `<img src="data:image/jpeg;base64,${base64Data}" />`;
+            viewer.innerHTML = `<img src="data:image/jpeg;base64,${base64Data}" alt="Canlı Ekran" />`;
 
             frameCount++;
-            document.getElementById('frames').textContent = frameCount;
+            document.getElementById('frames').textContent = frameCount.toLocaleString();
             document.getElementById('resolution').textContent = resolution || '-';
-            document.getElementById('latency').textContent = Date.now() - timestamp;
+
+            const latency = Date.now() - timestamp;
+            document.getElementById('latency').textContent = latency;
 
             updateStatus('online', 'Canlı');
 
+            // FPS hesaplama
+            fpsCounter++;
             const now = Date.now();
-            if (lastFrameTime) {
-                document.getElementById('fps').textContent = Math.round(1000 / (now - lastFrameTime));
+            if (now - lastFpsTime >= 1000) {
+                document.getElementById('fps').textContent = fpsCounter;
+                fpsCounter = 0;
+                lastFpsTime = now;
             }
-            lastFrameTime = now;
         }
 
         function updateStatus(type, text) {
@@ -85,7 +107,16 @@
             status.textContent = text;
         }
 
+        // Bağlan
         connect();
+
+        // Periyodik ping (Render.com'u uyanık tutmak için)
+        setInterval(() => {
+            fetch('/health')
+                .then(r => r.json())
+                .then(data => console.log('Health:', data.status))
+                .catch(e => console.error('Health check failed:', e));
+        }, 30000); // Her 30 saniyede bir
     </script>
 </body>
 </html>
